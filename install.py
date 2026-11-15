@@ -10,7 +10,7 @@ import sys
 DESKTOP_ID = "io.github.rajaxroy.TypingAssistant"
 SOURCE = Path(__file__).resolve().parent
 MARKER = "# Installed by Typing Assistant"
-MODULES = ("typing_assistant.py", "capture_shortcut.py", "draft_model.py", "draft_review.py")
+MODULES = ("typing_assistant.py", "capture_shortcut.py", "draft_model.py", "draft_review.py", "provider_settings.py")
 
 
 def desktop_argument(value):

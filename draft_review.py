@@ -4,13 +4,14 @@ from PySide6.QtWidgets import (
     QApplication, QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton,
     QVBoxLayout,
 )
-from draft_model import DraftError, Provider, rewrite, validate_draft
+from draft_model import DraftError, rewrite, validate_draft
 
 
 class DraftReview(QDialog):
-    def __init__(self, executor, original="", capture_note="", replace=None):
+    def __init__(self, executor, provider_settings, open_settings, original="", capture_note="", replace=None):
         super().__init__()
         self.executor = executor
+        self.provider_settings = provider_settings
         self.captured = original
         self.replace = replace
         self.pending = None
@@ -40,10 +41,12 @@ class DraftReview(QDialog):
         self.apply.clicked.connect(self.apply_result)
         self.copy = QPushButton("Copy revision")
         self.copy.clicked.connect(self.copy_result)
+        settings_button = QPushButton("Model settings")
+        settings_button.clicked.connect(open_settings)
         close = QPushButton("Close")
         close.clicked.connect(self.close)
         actions = QHBoxLayout()
-        for button in (self.grammar, self.formal, self.apply, self.copy, close):
+        for button in (self.grammar, self.formal, self.apply, self.copy, settings_button, close):
             button.setAutoDefault(False)
             actions.addWidget(button)
 
@@ -62,21 +65,20 @@ class DraftReview(QDialog):
         layout.addLayout(actions)
         self.timer = QTimer(self, interval=70)
         self.timer.timeout.connect(self.finish_request)
+        provider_settings.changed.connect(self.configure_provider)
         self.configure_provider()
         self.clear_result()
 
     def configure_provider(self):
-        try:
-            self.provider = Provider.from_environment()
-        except DraftError as error:
-            self.provider = None
-            self.provider_note.setText(str(error))
+        self.provider = self.provider_settings.provider
+        if self.provider is None:
+            self.provider_note.setText("Open Model settings to set your provider, model, and API key.")
         else:
             self.provider_note.setText(
                 f"Clicking a writing action sends this draft to {self.provider.destination} "
                 f"using {self.provider.model}."
             )
-        self.enable_writing_actions(self.provider is not None)
+        self.enable_writing_actions(self.provider is not None and self.pending is None and not self.applying)
 
     def enable_writing_actions(self, enabled):
         self.grammar.setEnabled(enabled)

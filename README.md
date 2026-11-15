@@ -56,17 +56,13 @@ The app uses a tray icon when available and otherwise opens a regular window. Us
 
 ## Check or rewrite a full draft
 
-Configure an external provider that supports the [Chat Completions API](https://developers.openai.com/api/reference/chat-completions/overview). Set its HTTPS API **base** URL and a model ID available to your account. Start the app from this terminal so it inherits the settings.
+Open **Model settings** from the tray, main window, or full-draft review. Enter the HTTPS base URL and model ID for a provider that supports [Chat Completions](https://developers.openai.com/api/reference/chat-completions/overview). For OpenRouter, use `https://openrouter.ai/api/v1` and `openrouter/free` or a specific model ID such as `google/gemma-4-26b-a4b-it:free`. Paste your [OpenRouter API key](https://openrouter.ai/settings/keys) into the masked field.
 
-```sh
-export TYPING_ASSISTANT_API_BASE=https://api.openai.com/v1
-export TYPING_ASSISTANT_MODEL='your-model-id'
-read -rs TYPING_ASSISTANT_API_KEY
-export TYPING_ASSISTANT_API_KEY
-~/.local/bin/typing-assistant
-```
+- **Use for this session** keeps the key in memory until you quit and saves the base URL and model as preferences.
+- **Save in keyring** stores the key in the desktop Secret Service for future launches. This option needs `secret-tool` and a working desktop keyring. On Arch, `secret-tool` comes from `libsecret`; on Debian and Ubuntu it comes from `libsecret-tools`.
+- **Forget saved key** removes the keyring entry. You can also remove it before uninstalling if you no longer plan to use the app.
 
-Enter your key when `read` waits for input, then press Enter. The command above uses a Bash-compatible shell. Run `python3 install.py` again after an update to refresh a previously installed launcher and its files.
+Settings apply immediately. Existing terminal-based configuration still works and takes priority at launch if all three `TYPING_ASSISTANT_*` provider variables are set. Run `python3 install.py` again after an update to refresh a previously installed launcher and its files.
 
 Create a custom global shortcut in your desktop settings. For example, in KDE Plasma, open **System Settings → Shortcuts → Add New → Command or Script**, use your launcher’s absolute path followed by `--capture`, and assign an available key combination such as **Ctrl+Alt+Shift+F**.
 

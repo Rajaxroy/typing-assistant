@@ -30,8 +30,13 @@ class Provider:
         url = os.environ.get("TYPING_ASSISTANT_API_BASE", "").strip()
         model = os.environ.get("TYPING_ASSISTANT_MODEL", "").strip()
         key = os.environ.get("TYPING_ASSISTANT_API_KEY", "").strip()
+        return cls.from_values(url, model, key)
+
+    @classmethod
+    def from_values(cls, url, model, key):
+        url, model, key = url.strip(), model.strip(), key.strip()
         if not (url and model and key):
-            raise DraftError("Set the provider URL, model, and API key. See the README.")
+            raise DraftError("Enter the API base URL, model, and API key.")
         try:
             endpoint = urlsplit(url)
             port = endpoint.port
@@ -43,6 +48,10 @@ class Provider:
                 or not key.isascii() or any(character.isspace() for character in key)):
             raise DraftError("Use an HTTPS API base URL and a valid API key. See the README.")
         return cls(endpoint.hostname, port, endpoint.path.rstrip("/") + "/chat/completions", model, key)
+
+    @property
+    def scope(self):
+        return self.host, self.port or 443, self.path
 
     @property
     def destination(self):

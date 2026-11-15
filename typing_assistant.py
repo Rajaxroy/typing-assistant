@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from capture_shortcut import CaptureServer, request_capture
 from draft_model import DraftError, MAX_DRAFT_BYTES, validate_draft
 from draft_review import DraftReview
+from provider_settings import ProviderSettings, ProviderSettingsDialog
 
 MAX_LENGTH = 4000
 ROLE = Atspi.Role
@@ -157,6 +158,8 @@ class Assistant(QWidget):
         self.enabled = True
         self.focused_field = None
         self.full_review = None
+        self.settings_dialog = None
+        self.provider_settings = ProviderSettings(self)
         self.draft_executor = ThreadPoolExecutor(max_workers=1)
         self.source = None
         self.original = ""
@@ -196,6 +199,7 @@ class Assistant(QWidget):
         self.review = self.menu.addAction("Review latest text", self.open_review)
         self.review.setEnabled(False)
         self.menu.addAction("Open full draft review", self.capture_full_draft)
+        self.menu.addAction("Model settings", self.open_model_settings)
         self.tray.messageClicked.connect(self.open_review)
         self.tray.activated.connect(self.tray_activated)
         self.pause = self.menu.addAction("Pause checking", self.toggle)
@@ -212,6 +216,9 @@ class Assistant(QWidget):
             full_review_button = QPushButton("Full draft review")
             full_review_button.clicked.connect(self.capture_full_draft)
             controls.addWidget(full_review_button)
+            settings_button = QPushButton("Model settings")
+            settings_button.clicked.connect(self.open_model_settings)
+            controls.addWidget(settings_button)
             self.pause_button = QPushButton()
             self.pause.changed.connect(self.sync_pause_button)
             self.pause_button.clicked.connect(self.toggle)
@@ -306,13 +313,28 @@ class Assistant(QWidget):
                 self.full_review.activateWindow()
                 return
             self.full_review.close()
-        review = DraftReview(self.draft_executor, original, note, replace)
+        review = DraftReview(
+            self.draft_executor, self.provider_settings, self.open_model_settings, original, note, replace
+        )
         review.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         review.finished.connect(self.clear_full_review)
         self.full_review = review
         review.show()
         review.raise_()
         review.activateWindow()
+
+    def open_model_settings(self):
+        if self.settings_dialog is None:
+            dialog = ProviderSettingsDialog(self.provider_settings)
+            dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            dialog.finished.connect(self.clear_settings_dialog)
+            self.settings_dialog = dialog
+        self.settings_dialog.show()
+        self.settings_dialog.raise_()
+        self.settings_dialog.activateWindow()
+
+    def clear_settings_dialog(self, _result):
+        self.settings_dialog = None
 
     def clear_full_review(self, _result):
         self.full_review = None
