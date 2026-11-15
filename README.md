@@ -54,19 +54,46 @@ Open **Typing Assistant** from your application menu, or run `~/.local/bin/typin
 
 The app uses a tray icon when available and otherwise opens a regular window. Use `--no-tray` to select the window explicitly. For startup at login, add Typing Assistant to your desktop's autostart settings. To remove the per-user launcher and installed script, run `python3 install.py --uninstall` from the repository.
 
+## Check or rewrite a full draft
+
+Configure an external provider that supports the [Chat Completions API](https://developers.openai.com/api/reference/chat-completions/overview). Set its HTTPS API **base** URL and a model ID available to your account. Start the app from this terminal so it inherits the settings.
+
+```sh
+export TYPING_ASSISTANT_API_BASE=https://api.openai.com/v1
+export TYPING_ASSISTANT_MODEL='your-model-id'
+read -rs TYPING_ASSISTANT_API_KEY
+export TYPING_ASSISTANT_API_KEY
+~/.local/bin/typing-assistant
+```
+
+Enter your key when `read` waits for input, then press Enter. The command above uses a Bash-compatible shell. Run `python3 install.py` again after an update to refresh a previously installed launcher and its files.
+
+Create a custom global shortcut in your desktop settings. For example, in KDE Plasma, open **System Settings → Shortcuts → Add New → Command or Script**, use your launcher’s absolute path followed by `--capture`, and assign an available key combination such as **Ctrl+Alt+Shift+F**.
+
+```text
+/home/YOUR_USER/.local/bin/typing-assistant --capture
+```
+
+1. Finish writing the email or chat message. Leave the cursor in the draft body and press the shortcut while Typing Assistant is running.
+2. Check that the left pane contains the full draft. If the editor exposes only part of it, or the editor is split into multiple fields, paste the complete text into that pane. You can also open **Full draft review** from the tray or the assistant window and paste the draft there.
+3. Choose **Check grammar** for grammar, spelling, and punctuation, or **Make formal** to rewrite the draft in a professional tone. Each action starts from the left pane.
+4. Review the complete result. Use **Apply** where direct replacement works, or **Copy revision** and paste it into your editor. A draft that was pasted or edited in the review window uses **Copy revision**.
+
+The 4,000-character limit applies to automatic checks. Explicit actions accept up to 100,000 UTF-8 bytes and send the entire draft in one request. The selected model may have a lower context or output limit. If the provider rejects the request or returns an incomplete response, the app shows an error and leaves your draft intact.
+
 ## Grammar and privacy
 
-The built-in checker handles a small set of English typos, contractions, and capitalization errors. For broader grammar and spelling checks, start a [local LanguageTool server](https://dev.languagetool.org/http-server.html) and run:
+Automatic checks run after a typing pause on the focused field. The built-in checker handles a small set of English typos, contractions, and capitalization errors. For broader automatic English checks, start a [local LanguageTool server](https://dev.languagetool.org/http-server.html) and run:
 
 ```sh
 ~/.local/bin/typing-assistant --languagetool-port 8081
 ```
 
-Checks run on the focused field after a typing pause. Draft text stays in memory and the optional LanguageTool request goes to `127.0.0.1`. Notifications contain no draft text. The app skips fields reported as passwords or terminals and checks up to 4,000 characters per field.
+Automatic checks use built-in rules or the optional loopback LanguageTool server. The external provider receives the draft only when you click **Check grammar** or **Make formal**. The review displays the provider before sending and the provider’s terms apply to those requests. Notifications contain no draft text. The app skips fields reported as passwords or terminals.
 
 ## Compatibility
 
-- Live detection was verified on KDE Plasma Wayland in a native Qt text field and a Firefox input. Firefox needed **Copy** in testing.
+- Live detection was verified on KDE Plasma Wayland in a native Qt field and a Firefox input. Full-draft capture was verified in a native Qt editor and a Firefox textarea using a 5,431-character draft and a mock provider. Firefox needed **Copy** in direct replacement testing.
 - The window fallback supports desktops without a tray. The utility is designed for graphical Wayland and X11 sessions with working AT-SPI, and behavior on other desktops and distributions still needs testing.
 - Coverage depends on the app and field. Some rich, canvas-based, and sandboxed editors expose limited text or editing support. If direct replacement fails, the review window offers **Copy**.
 

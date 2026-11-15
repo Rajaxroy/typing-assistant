@@ -10,6 +10,7 @@ import sys
 DESKTOP_ID = "io.github.rajaxroy.TypingAssistant"
 SOURCE = Path(__file__).resolve().parent
 MARKER = "# Installed by Typing Assistant"
+MODULES = ("typing_assistant.py", "capture_shortcut.py", "draft_model.py", "draft_review.py")
 
 
 def desktop_argument(value):
@@ -22,6 +23,7 @@ def desktop_argument(value):
 
 def install(args):
     script = args.data_home / DESKTOP_ID / "typing_assistant.py"
+    modules = [script.parent / name for name in MODULES]
     launcher = args.bin_dir / "typing-assistant"
     desktop = args.data_home / "applications" / f"{DESKTOP_ID}.desktop"
 
@@ -30,7 +32,7 @@ def install(args):
             raise SystemExit(f"Refusing to overwrite an existing launcher at {launcher}")
 
     if args.uninstall:
-        for path in (desktop, launcher, script):
+        for path in (desktop, launcher, *modules):
             path.unlink(missing_ok=True)
         if script.parent.exists() and not any(script.parent.iterdir()):
             script.parent.rmdir()
@@ -47,7 +49,8 @@ def install(args):
 
     for path in (script, launcher, desktop):
         path.parent.mkdir(parents=True, exist_ok=True)
-    copyfile(SOURCE / "typing_assistant.py", script)
+    for module in modules:
+        copyfile(SOURCE / module.name, module)
     command = shlex.join([sys.executable, str(script)])
     launcher.write_text(f'#!/bin/sh\n{MARKER}\nexec {command} "$@"\n')
     launcher.chmod(0o755)
@@ -60,6 +63,10 @@ def install(args):
         "Icon=tools-check-spelling\n"
         "Terminal=false\n"
         "Categories=Utility;Accessibility;\n"
+        "Actions=Capture;\n"
+        "\n[Desktop Action Capture]\n"
+        "Name=Review full draft\n"
+        f"Exec={desktop_argument(str(launcher))} --capture\n"
     )
     print(f"Installed launcher at {launcher}\nOpen Typing Assistant from your application menu.")
 

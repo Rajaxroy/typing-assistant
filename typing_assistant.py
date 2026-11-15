@@ -13,12 +13,16 @@ from urllib.parse import urlencode
 import gi
 gi.require_version("Atspi", "2.0")
 from gi.repository import Atspi, Gio, GLib
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QCoreApplication, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QMenu, QPlainTextEdit, QPushButton,
     QStyle, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
+
+from capture_shortcut import CaptureServer, request_capture
+from draft_model import DraftError, MAX_DRAFT_BYTES, validate_draft
+from draft_review import DraftReview
 
 MAX_LENGTH = 4000
 ROLE = Atspi.Role
@@ -92,7 +96,7 @@ def check_text(value, port):
         connection.close()
 
 
-def read_field(source, require_focus=True):
+def read_field(source, require_focus=True, full=False):
     states = source.get_state_set()
     if not states.contains(STATE.EDITABLE) or states.contains(STATE.DEFUNCT):
         return None
@@ -111,9 +115,19 @@ def read_field(source, require_focus=True):
     if interface is None:
         return None
     count = interface.get_character_count()
-    if not 0 < count <= MAX_LENGTH:
+    if count <= 0 or (not full and count > MAX_LENGTH):
         return None
-    return Atspi.Text.get_text(interface, 0, count)
+    if full and count > MAX_DRAFT_BYTES:
+        raise DraftError("This field exceeds the full-draft size limit. Paste the text here after shortening it.")
+    value = Atspi.Text.get_text(interface, 0, count)
+    if full:
+        if not value:
+            return None
+        byte_length = len(value.encode("utf-16-le")) // 2
+        if count not in (len(value), byte_length) or interface.get_character_count() != count:
+            raise DraftError("The field did not expose a stable, complete draft. Paste the full text here.")
+        validate_draft(value)
+    return value
 
 
 def replaceable(source):
@@ -141,6 +155,9 @@ class Assistant(QWidget):
         self.resize(390, 100)
         self.port = port
         self.enabled = True
+        self.focused_field = None
+        self.full_review = None
+        self.draft_executor = ThreadPoolExecutor(max_workers=1)
         self.source = None
         self.original = ""
         self.corrected = ""
@@ -178,6 +195,7 @@ class Assistant(QWidget):
         self.menu = QMenu()
         self.review = self.menu.addAction("Review latest text", self.open_review)
         self.review.setEnabled(False)
+        self.menu.addAction("Open full draft review", self.capture_full_draft)
         self.tray.messageClicked.connect(self.open_review)
         self.tray.activated.connect(self.tray_activated)
         self.pause = self.menu.addAction("Pause checking", self.toggle)
@@ -191,6 +209,9 @@ class Assistant(QWidget):
             self.review.changed.connect(self.sync_review_button)
             self.review_button.clicked.connect(self.open_review)
             controls.addWidget(self.review_button)
+            full_review_button = QPushButton("Full draft review")
+            full_review_button.clicked.connect(self.capture_full_draft)
+            controls.addWidget(full_review_button)
             self.pause_button = QPushButton()
             self.pause.changed.connect(self.sync_pause_button)
             self.pause_button.clicked.connect(self.toggle)
@@ -207,8 +228,9 @@ class Assistant(QWidget):
         self.poll = QTimer(self, interval=35)
         self.poll.timeout.connect(self.pump)
         self.listener = Atspi.EventListener.new(self.on_accessibility_event)
-        if not self.listener.register("object:text-changed"):
-            raise RuntimeError("Could not subscribe to accessibility text changes")
+        for event in ("object:text-changed", "object:state-changed:focused"):
+            if not self.listener.register(event):
+                raise RuntimeError(f"Could not subscribe to {event}")
         self.poll.start()
         self.reset()
         if not use_tray:
@@ -245,8 +267,6 @@ class Assistant(QWidget):
             self.pending = None
 
     def on_accessibility_event(self, event, *_):
-        if not self.enabled:
-            return
         try:
             source = event.source
             if source is None or source.get_process_id() == os.getpid():
@@ -256,9 +276,71 @@ class Assistant(QWidget):
                 return
         except (GLib.Error, RuntimeError):
             return
-        self.reset()
-        self.source = source
-        self.debounce.start()
+        self.focused_field = source
+        if self.enabled and event.type.startswith("object:text-changed"):
+            self.reset()
+            self.source = source
+            self.debounce.start()
+
+    def capture_full_draft(self):
+        self.pump()
+        source = self.focused_field
+        original = ""
+        note = "No readable focused draft was captured. Paste the full draft into the box."
+        replace = None
+        try:
+            if source is not None:
+                original = read_field(source, full=True) or ""
+                if original:
+                    note = "Check that the full draft is shown. If the app exposed only part of it, paste the complete text here."
+                    if replaceable(source):
+                        def replace(revised, done):
+                            self.replace_full_draft(source, original, revised, done)
+        except DraftError as error:
+            note = str(error)
+        except (GLib.Error, RuntimeError):
+            pass
+        if self.full_review is not None:
+            if not original:
+                self.full_review.raise_()
+                self.full_review.activateWindow()
+                return
+            self.full_review.close()
+        review = DraftReview(self.draft_executor, original, note, replace)
+        review.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        review.finished.connect(self.clear_full_review)
+        self.full_review = review
+        review.show()
+        review.raise_()
+        review.activateWindow()
+
+    def clear_full_review(self, _result):
+        self.full_review = None
+
+    def replace_full_draft(self, source, original, revised, done):
+        try:
+            if not replaceable(source) or read_field(source, require_focus=False, full=True) != original:
+                done(False)
+                return
+            editor = source.get_editable_text_iface()
+            if not Atspi.EditableText.set_text_contents(editor, revised):
+                done(False)
+                return
+        except (DraftError, GLib.Error, RuntimeError):
+            done(False)
+            return
+
+        review = self.full_review
+
+        def confirm():
+            if self.full_review is not review:
+                return
+            try:
+                done(read_field(source, require_focus=False, full=True) == revised)
+            except (DraftError, GLib.Error, RuntimeError):
+                done(False)
+
+        QTimer.singleShot(500, confirm)
 
     def current(self, require_focus=True):
         try:
@@ -389,7 +471,13 @@ def main():
     parser.add_argument("--languagetool-port", type=int, choices=range(1, 65536),
                         metavar="PORT", help="use a local LanguageTool server")
     parser.add_argument("--no-tray", action="store_true", help="show a regular desktop window")
+    parser.add_argument("--capture", action="store_true", help="review the full draft in the focused editor")
     args = parser.parse_args()
+    if args.capture:
+        command = QCoreApplication([sys.argv[0]])
+        if not request_capture():
+            parser.exit(1, "Could not reach Typing Assistant. Start it in this desktop session first.\n")
+        return 0
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         parser.exit(1, "Start Typing Assistant from a graphical Linux desktop session.\n")
     app = QApplication([sys.argv[0]])
@@ -402,12 +490,16 @@ def main():
     Atspi.set_timeout(500, 2000)
     try:
         assistant = Assistant(args.languagetool_port, use_tray)
+        shortcut = CaptureServer(assistant.capture_full_draft, assistant)
     except (GLib.Error, RuntimeError) as error:
         parser.exit(1, f"Could not start Typing Assistant: {error}\n")
     try:
         return app.exec()
     finally:
+        shortcut.close()
+        shortcut.lock.unlock()
         assistant.executor.shutdown(wait=False, cancel_futures=True)
+        assistant.draft_executor.shutdown(wait=False, cancel_futures=True)
 
 
 if __name__ == "__main__":
