@@ -77,6 +77,16 @@ Create a custom global shortcut in your desktop settings. For example, in KDE Pl
 
 The 4,000-character limit applies to automatic checks. Explicit actions accept up to 100,000 UTF-8 bytes and send the entire draft in one request. The selected model may have a lower context or output limit. If the provider rejects the request or returns an incomplete response, the app shows an error and leaves your draft intact.
 
+## Reply to copied text
+
+1. Select an email or chat message and copy it with **Ctrl+C**.
+2. Open **Reply to copied text** from the assistant’s tray menu or main window.
+3. Check the received message and enter your context in **How would you like to reply?** For example, “Thank them, confirm I can attend Friday after 2 pm, and ask for a meeting link. Keep it friendly.”
+4. Click **Generate reply**, review the result, and choose **Copy reply** to paste it into your email or chat.
+5. To refine the reply, change your context and generate again. Close and reopen the reply window to capture newly copied text.
+
+The clipboard is read when you open a new reply window. Clicking **Generate reply** sends the displayed message and context to your configured provider. The combined message and context can contain up to 100,000 UTF-8 bytes. Closing the window clears its text.
+
 ## Grammar and privacy
 
 Automatic checks run after a typing pause on the focused field. The built-in checker handles a small set of English typos, contractions, and capitalization errors. For broader automatic English checks, start a [local LanguageTool server](https://dev.languagetool.org/http-server.html) and run:

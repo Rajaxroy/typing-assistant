@@ -158,6 +158,7 @@ class Assistant(QWidget):
         self.enabled = True
         self.focused_field = None
         self.full_review = None
+        self.reply_review = None
         self.settings_dialog = None
         self.provider_settings = ProviderSettings(self)
         self.draft_executor = ThreadPoolExecutor(max_workers=1)
@@ -199,6 +200,7 @@ class Assistant(QWidget):
         self.review = self.menu.addAction("Review latest text", self.open_review)
         self.review.setEnabled(False)
         self.menu.addAction("Open full draft review", self.capture_full_draft)
+        self.menu.addAction("Reply to copied text", self.open_reply)
         self.menu.addAction("Model settings", self.open_model_settings)
         self.tray.messageClicked.connect(self.open_review)
         self.tray.activated.connect(self.tray_activated)
@@ -216,6 +218,9 @@ class Assistant(QWidget):
             full_review_button = QPushButton("Full draft review")
             full_review_button.clicked.connect(self.capture_full_draft)
             controls.addWidget(full_review_button)
+            reply_button = QPushButton("Reply to copied text")
+            reply_button.clicked.connect(self.open_reply)
+            controls.addWidget(reply_button)
             settings_button = QPushButton("Model settings")
             settings_button.clicked.connect(self.open_model_settings)
             controls.addWidget(settings_button)
@@ -322,6 +327,24 @@ class Assistant(QWidget):
         review.show()
         review.raise_()
         review.activateWindow()
+
+    def open_reply(self):
+        if self.reply_review is None:
+            review = DraftReview(
+                self.draft_executor, self.provider_settings, self.open_model_settings,
+                QApplication.clipboard().text(),
+                "Review the copied message and add any facts, tone, or instructions for your reply.",
+                reply=True,
+            )
+            review.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            review.finished.connect(self.clear_reply_review)
+            self.reply_review = review
+        self.reply_review.show()
+        self.reply_review.raise_()
+        self.reply_review.activateWindow()
+
+    def clear_reply_review(self, _result):
+        self.reply_review = None
 
     def open_model_settings(self):
         if self.settings_dialog is None:

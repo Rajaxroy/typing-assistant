@@ -4,19 +4,20 @@ from PySide6.QtWidgets import (
     QApplication, QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton,
     QVBoxLayout,
 )
-from draft_model import DraftError, rewrite, validate_draft
+from draft_model import DraftError, generate_reply, rewrite, validate_draft
 
 
 class DraftReview(QDialog):
-    def __init__(self, executor, provider_settings, open_settings, original="", capture_note="", replace=None):
+    def __init__(self, executor, provider_settings, open_settings, original="", capture_note="", replace=None, reply=False):
         super().__init__()
+        self.reply_mode = reply
         self.executor = executor
         self.provider_settings = provider_settings
         self.captured = original
         self.replace = replace
         self.pending = None
         self.applying = False
-        self.setWindowTitle("Review full draft")
+        self.setWindowTitle("Draft a reply" if reply else "Review full draft")
         self.resize(920, 510)
 
         self.note = QLabel(capture_note)
@@ -28,18 +29,24 @@ class DraftReview(QDialog):
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
         self.original = QPlainTextEdit(original)
-        self.original.setPlaceholderText("Paste your full draft here")
+        self.original.setPlaceholderText("Paste the received email or chat message" if reply else "Paste your full draft here")
         self.original.textChanged.connect(self.clear_result)
         self.revised = QPlainTextEdit(readOnly=True)
         self.revised.setPlaceholderText("The revised draft will appear here")
 
-        self.grammar = QPushButton("Check grammar")
-        self.grammar.clicked.connect(lambda: self.request("grammar"))
+        self.context = QPlainTextEdit()
+        self.context.setPlaceholderText(
+            "For example: Thank them, say I’m available Friday after 2 pm, and ask for a meeting link. Keep it friendly."
+        )
+        self.context.setMaximumHeight(110)
+        self.context.textChanged.connect(self.clear_result)
+        self.grammar = QPushButton("Generate reply" if reply else "Check grammar")
+        self.grammar.clicked.connect(lambda: self.request("reply" if self.reply_mode else "grammar"))
         self.formal = QPushButton("Make formal")
         self.formal.clicked.connect(lambda: self.request("formal"))
         self.apply = QPushButton("Apply")
         self.apply.clicked.connect(self.apply_result)
-        self.copy = QPushButton("Copy revision")
+        self.copy = QPushButton("Copy reply" if reply else "Copy revision")
         self.copy.clicked.connect(self.copy_result)
         settings_button = QPushButton("Model settings")
         settings_button.clicked.connect(open_settings)
@@ -51,7 +58,7 @@ class DraftReview(QDialog):
             actions.addWidget(button)
 
         editors = QHBoxLayout()
-        for label, editor in (("Full draft", self.original), ("Revised draft", self.revised)):
+        for label, editor in ((("Received message" if reply else "Full draft"), self.original), (("Reply" if reply else "Revised draft"), self.revised)):
             column = QVBoxLayout()
             column.addWidget(QLabel(label))
             column.addWidget(editor)
@@ -60,6 +67,11 @@ class DraftReview(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(self.note)
         layout.addLayout(editors)
+        if reply:
+            self.formal.hide()
+            self.apply.hide()
+            layout.addWidget(QLabel("How would you like to reply?"))
+            layout.addWidget(self.context)
         layout.addWidget(self.provider_note)
         layout.addWidget(self.status)
         layout.addLayout(actions)
@@ -75,7 +87,7 @@ class DraftReview(QDialog):
             self.provider_note.setText("Open Model settings to set your provider, model, and API key.")
         else:
             self.provider_note.setText(
-                f"Clicking a writing action sends this draft to {self.provider.destination} "
+                f"Clicking a writing action sends the text and any reply context to {self.provider.destination} "
                 f"using {self.provider.model}."
             )
         self.enable_writing_actions(self.provider is not None and self.pending is None and not self.applying)
@@ -105,7 +117,11 @@ class DraftReview(QDialog):
             self.status.setText(str(error))
             return
         self.clear_result()
-        self.pending = self.executor.submit(rewrite, self.provider, text, mode)
+        if self.reply_mode:
+            self.pending = self.executor.submit(generate_reply, self.provider, text, self.context.toPlainText())
+        else:
+            self.pending = self.executor.submit(rewrite, self.provider, text, mode)
+        self.context.setReadOnly(True)
         self.enable_writing_actions(False)
         self.original.setReadOnly(True)
         self.status.setText(f"Waiting for {self.provider.destination}…")
@@ -118,6 +134,7 @@ class DraftReview(QDialog):
         self.pending = None
         self.timer.stop()
         self.original.setReadOnly(False)
+        self.context.setReadOnly(False)
         self.enable_writing_actions(self.provider is not None)
         try:
             self.result = future.result()
@@ -125,7 +142,7 @@ class DraftReview(QDialog):
             self.status.setText(str(error))
             return
         self.revised.setPlainText(self.result)
-        changed = self.result != (
+        changed = self.reply_mode or self.result != (
             self.original.toPlainText() if self.original.document().isModified() else self.captured
         )
         self.copy.setEnabled(changed)
@@ -134,7 +151,10 @@ class DraftReview(QDialog):
             and len(self.result.splitlines()) == 1 and not self.result.endswith(("\n", "\r"))
         )
         self.apply.setEnabled(can_apply)
-        self.status.setText("Review the full revision before applying or copying it." if changed else "No changes suggested.")
+        if self.reply_mode:
+            self.status.setText("Review your reply, then copy it into your email or chat.")
+        else:
+            self.status.setText("Review the full revision before applying or copying it." if changed else "No changes suggested.")
 
     def apply_result(self):
         self.apply.setEnabled(False)
@@ -163,6 +183,7 @@ class DraftReview(QDialog):
             self.pending.cancel()
             self.pending = None
         self.original.clear()
+        self.context.clear()
         self.revised.clear()
         self.captured = ""
         self.result = ""
